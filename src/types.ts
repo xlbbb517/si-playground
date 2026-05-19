@@ -17,6 +17,18 @@ export interface LatencyRecord {
   realtimeTranslate: number | null;
 }
 
+export type LogLevel = 'info' | 'user' | 'input' | 'output' | 'error';
+export type LogCategory = 'server_event' | 'client_event' | 'session' | 'error' | 'vad' | 'asr' | 'latency';
+
+export interface SessionLogItem {
+  id: string;
+  ts: number;
+  level: LogLevel;
+  text: string;
+  category: LogCategory;
+  detail?: string;
+}
+
 export interface ChannelState {
   status: ConnectionStatus;
   sourceTranscript: TranscriptEntry[];
@@ -24,6 +36,7 @@ export interface ChannelState {
   currentLatency: number | null;
   latencyHistory: number[];
   isSpeaking: boolean;
+  logs: SessionLogItem[];
 }
 
 export interface AppConfig {

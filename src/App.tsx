@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { ConfigPanel } from './components/ConfigPanel';
-import { ChannelCard } from './components/ChannelCard';
+import { ChannelPanel } from './components/ChannelPanel';
 import { LatencyChart } from './components/LatencyChart';
 import { AudioCapture } from './lib/audioCapture';
 import { PCMPlayer } from './lib/pcmPlayer';
@@ -13,6 +13,7 @@ import type {
   ChannelType,
   LatencyRecord,
   TranscriptEntry,
+  SessionLogItem,
   ExportData,
 } from './types';
 import { DEFAULT_CONFIG, LANGUAGES } from './types';
@@ -25,6 +26,7 @@ const INITIAL_CHANNEL_STATE: ChannelState = {
   currentLatency: null,
   latencyHistory: [],
   isSpeaking: false,
+  logs: [],
 };
 
 function loadConfig(): AppConfig {
@@ -39,16 +41,24 @@ function saveConfig(config: AppConfig): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
+const TAB_META: Record<ChannelType, { label: string; color: string }> = {
+  voiceLive: { label: 'Voice Live', color: 'border-purple-500 text-purple-400' },
+  realtimeV2: { label: 'GPT-Realtime-2', color: 'border-blue-500 text-blue-400' },
+  realtimeTranslate: { label: 'Translate', color: 'border-emerald-500 text-emerald-400' },
+};
+
 export default function App() {
   const [config, setConfig] = useState<AppConfig>(loadConfig);
   const [configCollapsed, setConfigCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelType>('voiceLive');
-  const [isRunning, setIsRunning] = useState(false);
   const [latencyRecords, setLatencyRecords] = useState<LatencyRecord[]>([]);
 
   const [voiceLiveState, setVoiceLiveState] = useState<ChannelState>(INITIAL_CHANNEL_STATE);
   const [realtimeV2State, setRealtimeV2State] = useState<ChannelState>(INITIAL_CHANNEL_STATE);
   const [translateState, setTranslateState] = useState<ChannelState>(INITIAL_CHANNEL_STATE);
+
+  // Track which channel is actively running
+  const [runningChannel, setRunningChannel] = useState<ChannelType | null>(null);
 
   const audioCapture = useRef<AudioCapture>(new AudioCapture());
   const voiceLiveClient = useRef<VoiceLiveClient | null>(null);
@@ -58,17 +68,29 @@ export default function App() {
   const translatePcmPlayer = useRef<PCMPlayer | null>(null);
   const latencyTurnId = useRef(0);
 
-  // Responsive: detect small screens
-  const [isSmallScreen, setIsSmallScreen] = useState(window.innerWidth < 1024);
-  useEffect(() => {
-    const handler = () => setIsSmallScreen(window.innerWidth < 1024);
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
-
   const handleConfigChange = useCallback((newConfig: AppConfig) => {
     setConfig(newConfig);
     saveConfig(newConfig);
+  }, []);
+
+  const getStateSetter = useCallback((channel: ChannelType) => {
+    return channel === 'voiceLive'
+      ? setVoiceLiveState
+      : channel === 'realtimeV2'
+        ? setRealtimeV2State
+        : setTranslateState;
+  }, []);
+
+  const addLog = useCallback((channel: ChannelType, item: SessionLogItem) => {
+    const setter = channel === 'voiceLive'
+      ? setVoiceLiveState
+      : channel === 'realtimeV2'
+        ? setRealtimeV2State
+        : setTranslateState;
+    setter((prev) => ({
+      ...prev,
+      logs: [...prev.logs.slice(-500), item], // Keep last 500 entries
+    }));
   }, []);
 
   const addTranscriptEntry = useCallback(
@@ -77,12 +99,7 @@ export default function App() {
       type: 'source' | 'translated',
       entry: TranscriptEntry
     ) => {
-      const setter =
-        channel === 'voiceLive'
-          ? setVoiceLiveState
-          : channel === 'realtimeV2'
-            ? setRealtimeV2State
-            : setTranslateState;
+      const setter = getStateSetter(channel);
 
       setter((prev) => {
         const key = type === 'source' ? 'sourceTranscript' : 'translatedTranscript';
@@ -107,17 +124,12 @@ export default function App() {
         return { ...prev, [key]: [...existing, entry] };
       });
     },
-    []
+    [getStateSetter]
   );
 
   const handleLatency = useCallback(
     (channel: ChannelType, ms: number) => {
-      const setter =
-        channel === 'voiceLive'
-          ? setVoiceLiveState
-          : channel === 'realtimeV2'
-            ? setRealtimeV2State
-            : setTranslateState;
+      const setter = getStateSetter(channel);
 
       setter((prev) => ({
         ...prev,
@@ -144,18 +156,26 @@ export default function App() {
         return [...prev, newRecord];
       });
     },
-    []
+    [getStateSetter]
   );
 
-  const startSession = useCallback(async () => {
-    // Voice Live
-    if (config.voiceLiveEndpoint && config.voiceLiveApiKey) {
+  const startChannel = useCallback(async (channel: ChannelType) => {
+    // Stop any currently running channel first
+    if (runningChannel) {
+      stopChannel(runningChannel);
+    }
+
+    if (channel === 'voiceLive') {
+      const endpoint = config.voiceLiveEndpoint || config.sharedEndpoint;
+      const apiKey = config.voiceLiveApiKey || config.sharedApiKey;
+      if (!endpoint || !apiKey) return;
+
       voiceLivePcmPlayer.current = new PCMPlayer();
       await voiceLivePcmPlayer.current.resume();
 
       voiceLiveClient.current = new VoiceLiveClient(
-        config.voiceLiveEndpoint,
-        config.voiceLiveApiKey,
+        endpoint,
+        apiKey,
         config.voiceLiveModel,
         config.sourceLanguage,
         config.targetLanguage,
@@ -171,20 +191,28 @@ export default function App() {
           onAudioOutput: (base64) => voiceLivePcmPlayer.current?.enqueue(base64),
           onSpeakingChange: (speaking) =>
             setVoiceLiveState((prev) => ({ ...prev, isSpeaking: speaking })),
+          onLog: (item) => addLog('voiceLive', item),
         }
       );
       voiceLiveClient.current.connect();
-    }
 
-    // Realtime V2
-    if (config.realtimeEndpoint && config.realtimeApiKey) {
+      // Start audio capture — sends to Voice Live only
+      await audioCapture.current.start((pcm16) => {
+        voiceLiveClient.current?.sendAudio(pcm16);
+      });
+    } else if (channel === 'realtimeV2') {
+      const endpoint = config.realtimeEndpoint || config.sharedEndpoint;
+      const apiKey = config.realtimeApiKey || config.sharedApiKey;
+      if (!endpoint || !apiKey) return;
+
       // Inject source/target language into prompt for RT-2
       const targetLang = LANGUAGES.find(l => l.code === config.targetLanguage)?.label || config.targetLanguage;
       const sourceLang = LANGUAGES.find(l => l.code === config.sourceLanguage)?.label || config.sourceLanguage;
       const rtPrompt = config.systemPrompt + `\n\nIMPORTANT: Translate from ${sourceLang} into ${targetLang}. Output ONLY the translation, nothing else.`;
+
       realtimeClient.current = new RealtimeClient(
-        config.realtimeEndpoint,
-        config.realtimeApiKey,
+        endpoint,
+        apiKey,
         config.realtimeDeployment,
         rtPrompt,
         {
@@ -197,19 +225,26 @@ export default function App() {
           onLatency: (ms) => handleLatency('realtimeV2', ms),
           onSpeakingChange: (speaking) =>
             setRealtimeV2State((prev) => ({ ...prev, isSpeaking: speaking })),
+          onLog: (item) => addLog('realtimeV2', item),
         }
       );
       realtimeClient.current.connect();
-    }
 
-    // Translate
-    if (config.translateEndpoint && config.translateApiKey) {
+      // Start audio capture — sends to RT-2 only
+      await audioCapture.current.start((pcm16) => {
+        realtimeClient.current?.sendAudio(pcm16);
+      });
+    } else if (channel === 'realtimeTranslate') {
+      const endpoint = config.translateEndpoint || config.sharedEndpoint;
+      const apiKey = config.translateApiKey || config.sharedApiKey;
+      if (!endpoint || !apiKey) return;
+
       translatePcmPlayer.current = new PCMPlayer();
       await translatePcmPlayer.current.resume();
 
       translateClient.current = new TranslateClient(
-        config.translateEndpoint,
-        config.translateApiKey,
+        endpoint,
+        apiKey,
         config.translateDeployment,
         config.targetLanguage,
         {
@@ -223,45 +258,51 @@ export default function App() {
           onAudioOutput: (base64) => translatePcmPlayer.current?.enqueue(base64),
           onSpeakingChange: (speaking) =>
             setTranslateState((prev) => ({ ...prev, isSpeaking: speaking })),
+          onLog: (item) => addLog('realtimeTranslate', item),
         }
       );
       translateClient.current.connect();
+
+      // Start audio capture — sends to Translate only
+      await audioCapture.current.start((pcm16) => {
+        translateClient.current?.sendAudio(pcm16);
+      });
     }
 
-    // Start audio capture
-    await audioCapture.current.start((pcm16) => {
-      voiceLiveClient.current?.sendAudio(pcm16);
-      realtimeClient.current?.sendAudio(pcm16);
-      translateClient.current?.sendAudio(pcm16);
-    });
+    setRunningChannel(channel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, addTranscriptEntry, handleLatency, addLog, runningChannel]);
 
-    setIsRunning(true);
-  }, [config, addTranscriptEntry, handleLatency]);
-
-  const stopSession = useCallback(() => {
+  const stopChannel = useCallback((channel: ChannelType) => {
     audioCapture.current.stop();
-    voiceLiveClient.current?.disconnect();
-    realtimeClient.current?.disconnect();
-    translateClient.current?.disconnect();
-    voiceLivePcmPlayer.current?.close();
-    translatePcmPlayer.current?.close();
-    voiceLiveClient.current = null;
-    realtimeClient.current = null;
-    translateClient.current = null;
-    voiceLivePcmPlayer.current = null;
-    translatePcmPlayer.current = null;
-    setIsRunning(false);
+
+    if (channel === 'voiceLive') {
+      voiceLiveClient.current?.disconnect();
+      voiceLivePcmPlayer.current?.close();
+      voiceLiveClient.current = null;
+      voiceLivePcmPlayer.current = null;
+    } else if (channel === 'realtimeV2') {
+      realtimeClient.current?.disconnect();
+      realtimeClient.current = null;
+    } else if (channel === 'realtimeTranslate') {
+      translateClient.current?.disconnect();
+      translatePcmPlayer.current?.close();
+      translateClient.current = null;
+      translatePcmPlayer.current = null;
+    }
+
+    setRunningChannel(null);
   }, []);
 
   const handleToggle = useCallback(
-    (_channel: ChannelType) => {
-      if (isRunning) {
-        stopSession();
+    (channel: ChannelType) => {
+      if (runningChannel === channel) {
+        stopChannel(channel);
       } else {
-        void startSession();
+        void startChannel(channel);
       }
     },
-    [isRunning, startSession, stopSession]
+    [runningChannel, startChannel, stopChannel]
   );
 
   const exportResults = useCallback(() => {
@@ -311,11 +352,13 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [config, voiceLiveState, realtimeV2State, translateState]);
 
-  const channels: { type: ChannelType; state: ChannelState }[] = [
-    { type: 'voiceLive', state: voiceLiveState },
-    { type: 'realtimeV2', state: realtimeV2State },
-    { type: 'realtimeTranslate', state: translateState },
-  ];
+  const getChannelState = (channel: ChannelType): ChannelState => {
+    switch (channel) {
+      case 'voiceLive': return voiceLiveState;
+      case 'realtimeV2': return realtimeV2State;
+      case 'realtimeTranslate': return translateState;
+    }
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -335,85 +378,64 @@ export default function App() {
             <h1 className="text-base font-semibold text-text-primary">
               🎙️ Azure Simultaneous Interpretation
             </h1>
-            {isRunning && (
+            {runningChannel && (
               <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live
+                Live ({TAB_META[runningChannel].label})
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={exportResults}
-              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-border/50 hover:bg-border rounded-lg transition-colors"
-            >
-              📥 Export Results
-            </button>
-            <button
-              onClick={isRunning ? stopSession : () => void startSession()}
-              className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                isRunning
-                  ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30'
-                  : 'bg-accent/10 text-accent hover:bg-accent/20 border border-accent/30'
-              }`}
-            >
-              {isRunning ? '⏹ Stop All' : '▶ Start All'}
-            </button>
-          </div>
+          <button
+            onClick={exportResults}
+            className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-border/50 hover:bg-border rounded-lg transition-colors"
+          >
+            📥 Export Results
+          </button>
         </header>
 
-        {/* Channel Cards */}
+        {/* Tab Bar */}
+        <div className="flex border-b border-border bg-card/30">
+          {(['voiceLive', 'realtimeV2', 'realtimeTranslate'] as ChannelType[]).map((ch) => {
+            const meta = TAB_META[ch];
+            const isActive = activeTab === ch;
+            const isChannelRunning = runningChannel === ch;
+            const state = getChannelState(ch);
+            return (
+              <button
+                key={ch}
+                onClick={() => setActiveTab(ch)}
+                className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors ${
+                  isActive
+                    ? `${meta.color} border-b-2`
+                    : 'text-text-secondary hover:text-text-primary border-b-2 border-transparent'
+                }`}
+              >
+                {/* Running indicator */}
+                {isChannelRunning && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+                {meta.label}
+                {/* Status dot */}
+                {state.status === 'connected' && !isChannelRunning && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                )}
+                {state.status === 'error' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active Channel Panel */}
         <div className="flex-1 overflow-hidden p-4">
-          {isSmallScreen ? (
-            // Tabs layout for small screens
-            <div className="flex flex-col h-full">
-              <div className="flex border-b border-border mb-4">
-                {channels.map((ch) => (
-                  <button
-                    key={ch.type}
-                    onClick={() => setActiveTab(ch.type)}
-                    className={`flex-1 px-4 py-2 text-xs font-medium transition-colors ${
-                      activeTab === ch.type
-                        ? 'text-text-primary border-b-2 border-accent'
-                        : 'text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    {ch.type === 'voiceLive'
-                      ? 'Voice Live'
-                      : ch.type === 'realtimeV2'
-                        ? 'Realtime V2'
-                        : 'Translate'}
-                  </button>
-                ))}
-              </div>
-              <div className="flex-1 overflow-hidden">
-                {channels
-                  .filter((ch) => ch.type === activeTab)
-                  .map((ch) => (
-                    <ChannelCard
-                      key={ch.type}
-                      type={ch.type}
-                      state={ch.state}
-                      isRunning={isRunning}
-                      onToggle={() => handleToggle(ch.type)}
-                    />
-                  ))}
-              </div>
-            </div>
-          ) : (
-            // Three-column layout for large screens
-            <div className="grid grid-cols-3 gap-4 h-full">
-              {channels.map((ch) => (
-                <ChannelCard
-                  key={ch.type}
-                  type={ch.type}
-                  state={ch.state}
-                  isRunning={isRunning}
-                  onToggle={() => handleToggle(ch.type)}
-                />
-              ))}
-            </div>
-          )}
+          <ChannelPanel
+            key={activeTab}
+            type={activeTab}
+            state={getChannelState(activeTab)}
+            isRunning={runningChannel === activeTab}
+            onToggle={() => handleToggle(activeTab)}
+          />
         </div>
 
         {/* Bottom Latency Comparison */}

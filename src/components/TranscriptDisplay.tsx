@@ -26,7 +26,7 @@ export function TranscriptDisplay({ label, entries, variant }: TranscriptDisplay
       </span>
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto max-h-32 space-y-1 text-sm"
+        className="flex-1 overflow-y-auto space-y-1 text-sm"
       >
         {entries.length === 0 ? (
           <p className="text-zinc-600 text-xs italic">Waiting for speech...</p>

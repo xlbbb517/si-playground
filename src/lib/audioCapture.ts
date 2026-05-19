@@ -1,5 +1,5 @@
-const SAMPLE_RATE = 24000;
-const BUFFER_SIZE = 4800; // 200ms chunks
+const SAMPLE_RATE = 16000;
+const BUFFER_SIZE = 3200; // 200ms chunks at 16kHz
 
 export type AudioDataCallback = (pcm16: Int16Array) => void;
 
@@ -13,6 +13,10 @@ export class AudioCapture {
 
   get isCapturing(): boolean {
     return this._isCapturing;
+  }
+
+  get sampleRate(): number {
+    return SAMPLE_RATE;
   }
 
   async start(onAudioData: AudioDataCallback): Promise<void> {
@@ -29,7 +33,6 @@ export class AudioCapture {
 
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
 
-    // Use ScriptProcessorNode as fallback (AudioWorklet requires served file)
     this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
 
     // Try AudioWorklet first, fall back to ScriptProcessor
