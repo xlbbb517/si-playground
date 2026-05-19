@@ -15,6 +15,7 @@ export class TranslateClient {
   private callbacks: TranslateCallbacks;
   private endpoint: string;
   private apiKey: string;
+  private deployment: string;
   private targetLanguage: string;
   private lastAudioSentTime = 0;
   private currentTranslationId = '';
@@ -24,11 +25,13 @@ export class TranslateClient {
   constructor(
     endpoint: string,
     apiKey: string,
+    deployment: string,
     targetLanguage: string,
     callbacks: TranslateCallbacks
   ) {
     this.endpoint = endpoint;
     this.apiKey = apiKey;
+    this.deployment = deployment;
     this.targetLanguage = targetLanguage;
     this.callbacks = callbacks;
   }
@@ -37,7 +40,7 @@ export class TranslateClient {
     this.callbacks.onStatusChange('connecting');
 
     const resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const url = `wss://${resource}/openai/v1/realtime/translations?model=gpt-realtime-translate&api-key=${this.apiKey}`;
+    const url = `wss://${resource}/openai/v1/realtime/translations?model=${this.deployment}&api-key=${this.apiKey}`;
 
     this.ws = new WebSocket(url);
 

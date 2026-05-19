@@ -44,9 +44,9 @@ export class VoiceLiveClient {
   connect(): void {
     this.callbacks.onStatusChange('connecting');
 
-    // Voice Live uses cognitiveservices.azure.com
+    // Voice Live uses cognitiveservices.azure.com with model param (not deployment)
     const resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const url = `wss://${resource}/openai/realtime?api-version=2025-10-01&deployment=${this.deployment}&api-key=${this.apiKey}`;
+    const url = `wss://${resource}/openai/realtime?api-version=2025-10-01&model=${this.deployment}&api-key=${this.apiKey}`;
 
     this.ws = new WebSocket(url);
 

@@ -15,7 +15,7 @@ import type {
   TranscriptEntry,
   ExportData,
 } from './types';
-import { DEFAULT_CONFIG } from './types';
+import { DEFAULT_CONFIG, LANGUAGES } from './types';
 
 const STORAGE_KEY = 'sip-config';
 const INITIAL_CHANNEL_STATE: ChannelState = {
@@ -178,11 +178,15 @@ export default function App() {
 
     // Realtime V2
     if (config.realtimeEndpoint && config.realtimeApiKey) {
+      // Inject source/target language into prompt for RT-2
+      const targetLang = LANGUAGES.find(l => l.code === config.targetLanguage)?.label || config.targetLanguage;
+      const sourceLang = LANGUAGES.find(l => l.code === config.sourceLanguage)?.label || config.sourceLanguage;
+      const rtPrompt = config.systemPrompt + `\n\nIMPORTANT: Translate from ${sourceLang} into ${targetLang}. Output ONLY the translation, nothing else.`;
       realtimeClient.current = new RealtimeClient(
         config.realtimeEndpoint,
         config.realtimeApiKey,
         config.realtimeDeployment,
-        config.systemPrompt,
+        rtPrompt,
         {
           onStatusChange: (status) =>
             setRealtimeV2State((prev) => ({ ...prev, status })),
@@ -206,6 +210,7 @@ export default function App() {
       translateClient.current = new TranslateClient(
         config.translateEndpoint,
         config.translateApiKey,
+        config.translateDeployment,
         config.targetLanguage,
         {
           onStatusChange: (status) =>

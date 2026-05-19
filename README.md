@@ -1,52 +1,32 @@
 # Azure Simultaneous Interpretation Playground
 
-A three-way comparison tool for Azure simultaneous interpretation solutions:
+Three-way comparison tool for Azure SI solutions:
 
 | Channel | Model | Approach |
 |---------|-------|----------|
 | **Voice Live API** | gpt-4.1-mini / gpt-realtime / etc. | Three-stage: Azure STT → LLM → Azure TTS |
-| **GPT-Realtime-2** | gpt-realtime-2 | End-to-end: instruction-based translation (text mode) |
-| **GPT-Realtime-Translate** | gpt-realtime-translate | Dedicated translation model (audio in → audio + text out) |
+| **GPT-Realtime-2** | gpt-realtime-2 | Instruction-based translation (text mode) |
+| **GPT-Realtime-Translate** | gpt-realtime-translate | Dedicated translation model (audio+text out) |
 
-## Features
+## Live Demo
+https://xlbbb517.github.io/si-playground/
 
-- 🎤 Real-time microphone capture (PCM16, 24kHz)
-- ⚡ Per-turn latency measurement (speech_stopped → first_delta)
-- 📊 Live latency comparison chart
-- 🔊 Audio playback for translated speech
-- 💾 Export results as JSON
-- 🔗 Shared config with sync-to-all button
-- 🌙 Dark theme (Vercel/Linear style)
+## Quick Start
+1. Open the page → **Shared** tab
+2. Enter your Azure endpoint + API key → **Sync to All**
+3. Set source/target language in **Common** tab
+4. Click **Start All** — speak and compare!
 
-## Usage
+## Voice Live Supported Models
+| Tier | Models |
+|------|--------|
+| Pro | gpt-realtime, gpt-4o, gpt-4.1, gpt-5, gpt-5-chat |
+| Basic | gpt-realtime-mini, gpt-4o-mini, gpt-4.1-mini, gpt-5-mini |
+| Lite | gpt-5-nano, phi4-mm-realtime, phi4-mini |
 
-1. Open the page
-2. In the **Shared** config tab, enter your Azure endpoint and API key
-3. Click **Sync to All Channels**
-4. Adjust models/deployments in per-channel tabs if needed
-5. Set source/target language in Common tab
-6. Click **Start** on each channel card
-7. Start speaking!
+[Docs: Voice Live API](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/voice-live)
 
-## Deployment
-
-Live at: https://xlbbb517.github.io/si-playground/
-
-## Development
-
+## Dev
 ```bash
-npm install
-npm run dev
+npm install && npm run dev
 ```
-
-## Build
-
-```bash
-npm run build
-```
-
-## Tech Stack
-
-- Vite + React + TypeScript + TailwindCSS
-- Native WebSocket (no SDK dependencies for runtime)
-- AudioWorklet for mic capture
