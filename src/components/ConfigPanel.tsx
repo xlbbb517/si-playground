@@ -69,11 +69,57 @@ function Select({
   );
 }
 
+function NumberInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  placeholder,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[11px] font-medium text-text-secondary uppercase tracking-wider">
+        {label}
+      </label>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        min={min}
+        max={max}
+        step={step}
+        placeholder={placeholder}
+        className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-zinc-600 focus:outline-none focus:border-accent transition-colors"
+      />
+    </div>
+  );
+}
+
+function AdvancedDivider() {
+  return (
+    <div className="flex items-center gap-2 pt-3 pb-1">
+      <div className="flex-1 h-px bg-border" />
+      <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">Advanced Settings</span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
+}
+
 export function ConfigPanel({ config, onConfigChange, isCollapsed, onToggleCollapse }: ConfigPanelProps) {
   const [activeSection, setActiveSection] = useState<string>('shared');
   const [syncNotice, setSyncNotice] = useState(false);
 
-  const update = (key: keyof AppConfig, value: string) => {
+  const update = (key: keyof AppConfig, value: string | number) => {
     onConfigChange({ ...config, [key]: value });
   };
 
@@ -243,6 +289,42 @@ export function ConfigPanel({ config, onConfigChange, isCollapsed, onToggleColla
                 Pro = native audio I/O, Basic/Lite = Azure Speech STT + TTS
               </p>
             </div>
+            <AdvancedDivider />
+            <Input
+              label="Voice Name"
+              value={config.voiceLiveVoiceName}
+              onChange={(v) => update('voiceLiveVoiceName', v)}
+              placeholder="en-US-Aria:DragonHDFlashLatestNeural"
+            />
+            <Input
+              label="ASR Language (empty = use Source Language)"
+              value={config.voiceLiveAsrLanguage}
+              onChange={(v) => update('voiceLiveAsrLanguage', v)}
+              placeholder="e.g. zh-CN, en-US"
+            />
+            <Select
+              label="Turn Detection Type"
+              value={config.voiceLiveTurnDetection}
+              onChange={(v) => update('voiceLiveTurnDetection', v)}
+              options={[
+                { code: 'azure_semantic_vad', label: 'Azure Semantic VAD' },
+                { code: 'server_vad', label: 'Server VAD' },
+              ]}
+            />
+            <NumberInput
+              label="Silence Duration (ms)"
+              value={config.voiceLiveSilenceDuration}
+              onChange={(v) => update('voiceLiveSilenceDuration', v)}
+              min={0}
+              step={50}
+            />
+            <NumberInput
+              label="Speech Duration (ms)"
+              value={config.voiceLiveSpeechDuration}
+              onChange={(v) => update('voiceLiveSpeechDuration', v)}
+              min={0}
+              step={10}
+            />
           </>
         )}
 
@@ -267,6 +349,48 @@ export function ConfigPanel({ config, onConfigChange, isCollapsed, onToggleColla
               onChange={(v) => update('realtimeDeployment', v)}
               placeholder="gpt-realtime-2"
             />
+            <AdvancedDivider />
+            <Select
+              label="Reasoning Effort"
+              value={config.realtimeReasoningEffort}
+              onChange={(v) => update('realtimeReasoningEffort', v)}
+              options={[
+                { code: 'none', label: 'None (disabled)' },
+                { code: 'low', label: 'Low' },
+                { code: 'medium', label: 'Medium' },
+                { code: 'high', label: 'High' },
+              ]}
+            />
+            <NumberInput
+              label="Temperature (0-2)"
+              value={config.realtimeTemperature}
+              onChange={(v) => update('realtimeTemperature', v)}
+              min={0}
+              max={2}
+              step={0.1}
+            />
+            <Input
+              label="Max Output Tokens"
+              value={config.realtimeMaxTokens}
+              onChange={(v) => update('realtimeMaxTokens', v)}
+              placeholder="inf"
+            />
+            <Select
+              label="Turn Detection"
+              value={config.realtimeTurnDetection}
+              onChange={(v) => update('realtimeTurnDetection', v)}
+              options={[
+                { code: 'server_vad', label: 'Server VAD' },
+                { code: 'none', label: 'None (manual commit)' },
+              ]}
+            />
+            <NumberInput
+              label="VAD Silence Duration (ms)"
+              value={config.realtimeVadSilence}
+              onChange={(v) => update('realtimeVadSilence', v)}
+              min={0}
+              step={50}
+            />
           </>
         )}
 
@@ -290,6 +414,27 @@ export function ConfigPanel({ config, onConfigChange, isCollapsed, onToggleColla
               value={config.translateDeployment}
               onChange={(v) => update('translateDeployment', v)}
               placeholder="gpt-realtime-translate"
+            />
+            <AdvancedDivider />
+            <Select
+              label="Translation Delay"
+              value={config.translateDelay}
+              onChange={(v) => update('translateDelay', v)}
+              options={[
+                { code: '0', label: '0 (no delay)' },
+                { code: '2', label: '2' },
+                { code: '4', label: '4' },
+              ]}
+            />
+            <Select
+              label="Noise Reduction"
+              value={config.translateNoiseReduction}
+              onChange={(v) => update('translateNoiseReduction', v)}
+              options={[
+                { code: 'off', label: 'Off' },
+                { code: 'near_field', label: 'Near Field' },
+                { code: 'far_field', label: 'Far Field' },
+              ]}
             />
           </>
         )}

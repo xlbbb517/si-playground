@@ -1,5 +1,5 @@
 import { pcm16ToBase64 } from './audioCapture';
-import type { ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
+import type { AppConfig, ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
 
 export interface RealtimeCallbacks {
   onStatusChange: (status: ConnectionStatus) => void;
@@ -17,6 +17,7 @@ export class RealtimeClient {
   private apiKey: string;
   private deployment: string;
   private systemPrompt: string;
+  private config: AppConfig;
   private lastSpeechEndTime = 0;
   private currentTranslationId = '';
   private currentTranscriptId = '';
@@ -27,12 +28,14 @@ export class RealtimeClient {
     apiKey: string,
     deployment: string,
     systemPrompt: string,
+    config: AppConfig,
     callbacks: RealtimeCallbacks
   ) {
     this.endpoint = endpoint;
     this.apiKey = apiKey;
     this.deployment = deployment;
     this.systemPrompt = systemPrompt;
+    this.config = config;
     this.callbacks = callbacks;
   }
 
@@ -51,7 +54,15 @@ export class RealtimeClient {
     this.callbacks.onStatusChange('connecting');
     this.log('info', 'Connecting to GPT-Realtime-2...', 'session');
 
-    const resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    // Auto-convert endpoint domains to openai.azure.com for Realtime V2
+    let resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (resource.includes('.services.ai.azure.com')) {
+      const name = resource.split('.services.ai.azure.com')[0];
+      resource = `${name}.openai.azure.com`;
+    } else if (resource.includes('.cognitiveservices.azure.com')) {
+      const name = resource.split('.cognitiveservices.azure.com')[0];
+      resource = `${name}.openai.azure.com`;
+    }
     const url = `wss://${resource}/openai/realtime?api-version=2025-04-01-preview&deployment=${this.deployment}&api-key=${this.apiKey}`;
 
     this.log('info', `WebSocket URL: wss://${resource}/openai/realtime?...&deployment=${this.deployment}`, 'session');
@@ -91,9 +102,17 @@ export class RealtimeClient {
         input_audio_transcription: {
           model: 'whisper-1',
         },
-        turn_detection: {
+        turn_detection: this.config.realtimeTurnDetection === 'none' ? null : {
           type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: this.config.realtimeVadSilence,
         },
+        temperature: this.config.realtimeTemperature,
+        max_response_output_tokens: this.config.realtimeMaxTokens === 'inf' ? 'inf' : parseInt(this.config.realtimeMaxTokens),
+        ...(this.config.realtimeReasoningEffort !== 'none' && {
+          reasoning: { effort: this.config.realtimeReasoningEffort },
+        }),
       },
     };
 

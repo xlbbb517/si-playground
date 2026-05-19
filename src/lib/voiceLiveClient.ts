@@ -1,5 +1,5 @@
 import { pcm16ToBase64 } from './audioCapture';
-import type { ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
+import type { AppConfig, ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
 
 export interface VoiceLiveCallbacks {
   onStatusChange: (status: ConnectionStatus) => void;
@@ -18,8 +18,8 @@ export class VoiceLiveClient {
   private apiKey: string;
   private model: string;
   private sourceLanguage: string;
-  private targetLanguage: string;
   private systemPrompt: string;
+  private config: AppConfig;
   private lastSpeechEndTime = 0;
   private currentTranscriptId = '';
   private currentTranslationId = '';
@@ -30,16 +30,17 @@ export class VoiceLiveClient {
     apiKey: string,
     model: string,
     sourceLanguage: string,
-    targetLanguage: string,
+    _targetLanguage: string,
     systemPrompt: string,
+    config: AppConfig,
     callbacks: VoiceLiveCallbacks
   ) {
     this.endpoint = endpoint;
     this.apiKey = apiKey;
     this.model = model;
     this.sourceLanguage = sourceLanguage;
-    this.targetLanguage = targetLanguage;
     this.systemPrompt = systemPrompt;
+    this.config = config;
     this.callbacks = callbacks;
   }
 
@@ -59,10 +60,21 @@ export class VoiceLiveClient {
     this.log('info', 'Connecting to Voice Live...', 'session');
 
     // Voice Live uses cognitiveservices.azure.com with model param
-    const resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const url = `wss://${resource}/openai/realtime?api-version=2025-10-01&model=${this.model}&api-key=${this.apiKey}`;
+    // Auto-convert endpoint domains:
+    //   xxx.services.ai.azure.com → xxx.cognitiveservices.azure.com
+    //   xxx.openai.azure.com → xxx.cognitiveservices.azure.com
+    let resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (resource.includes('.services.ai.azure.com')) {
+      // Extract resource name from services.ai.azure.com format
+      const name = resource.split('.services.ai.azure.com')[0];
+      resource = `${name}.cognitiveservices.azure.com`;
+    } else if (resource.includes('.openai.azure.com')) {
+      const name = resource.split('.openai.azure.com')[0];
+      resource = `${name}.cognitiveservices.azure.com`;
+    }
+    const url = `wss://${resource}/voice-live/realtime?api-version=2025-10-01&model=${this.model}&api-key=${this.apiKey}`;
 
-    this.log('info', `WebSocket URL: wss://${resource}/openai/realtime?api-version=2025-10-01&model=${this.model}`, 'session');
+    this.log('info', `WebSocket URL: wss://${resource}/voice-live/realtime?api-version=2025-10-01&model=${this.model}`, 'session');
 
     this.ws = new WebSocket(url);
 
@@ -90,12 +102,8 @@ export class VoiceLiveClient {
   }
 
   private sendSessionUpdate(): void {
-    // Determine voice name based on target language
-    const voiceName = this.targetLanguage.startsWith('en')
-      ? 'en-US-Aria:DragonHDFlashLatestNeural'
-      : this.targetLanguage.startsWith('zh')
-        ? 'zh-CN-Xiaochen:DragonHDFlashLatestNeural'
-        : 'en-US-Aria:DragonHDFlashLatestNeural';
+    const voiceName = this.config.voiceLiveVoiceName || 'en-US-Aria:DragonHDFlashLatestNeural';
+    const asrLanguage = this.config.voiceLiveAsrLanguage || this.sourceLanguage;
 
     const sessionUpdate = {
       type: 'session.update',
@@ -107,17 +115,17 @@ export class VoiceLiveClient {
         input_audio_sampling_rate: 16000,
         output_audio_format: 'pcm16',
         turn_detection: {
-          type: 'azure_semantic_vad',
+          type: this.config.voiceLiveTurnDetection,
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 200,
-          speech_duration_ms: 80,
+          silence_duration_ms: this.config.voiceLiveSilenceDuration,
+          speech_duration_ms: this.config.voiceLiveSpeechDuration,
           create_response: true,
           interrupt_response: false,
         },
         input_audio_transcription: {
           model: 'azure-speech',
-          language: this.sourceLanguage,
+          language: asrLanguage,
         },
         voice: {
           type: 'azure-standard',

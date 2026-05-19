@@ -180,6 +180,7 @@ export default function App() {
         config.sourceLanguage,
         config.targetLanguage,
         config.systemPrompt,
+        config,
         {
           onStatusChange: (status) =>
             setVoiceLiveState((prev) => ({ ...prev, status })),
@@ -215,6 +216,7 @@ export default function App() {
         apiKey,
         config.realtimeDeployment,
         rtPrompt,
+        config,
         {
           onStatusChange: (status) =>
             setRealtimeV2State((prev) => ({ ...prev, status })),
@@ -247,6 +249,7 @@ export default function App() {
         apiKey,
         config.translateDeployment,
         config.targetLanguage,
+        config,
         {
           onStatusChange: (status) =>
             setTranslateState((prev) => ({ ...prev, status })),

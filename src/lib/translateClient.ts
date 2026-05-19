@@ -1,5 +1,5 @@
 import { pcm16ToBase64 } from './audioCapture';
-import type { ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
+import type { AppConfig, ConnectionStatus, TranscriptEntry, SessionLogItem } from '../types';
 
 export interface TranslateCallbacks {
   onStatusChange: (status: ConnectionStatus) => void;
@@ -18,6 +18,7 @@ export class TranslateClient {
   private apiKey: string;
   private deployment: string;
   private targetLanguage: string;
+  private config: AppConfig;
   private lastSpeechEndTime = 0;
   private currentTranslationId = '';
   private currentTranscriptId = '';
@@ -29,12 +30,14 @@ export class TranslateClient {
     apiKey: string,
     deployment: string,
     targetLanguage: string,
+    config: AppConfig,
     callbacks: TranslateCallbacks
   ) {
     this.endpoint = endpoint;
     this.apiKey = apiKey;
     this.deployment = deployment;
     this.targetLanguage = targetLanguage;
+    this.config = config;
     this.callbacks = callbacks;
   }
 
@@ -53,10 +56,18 @@ export class TranslateClient {
     this.callbacks.onStatusChange('connecting');
     this.log('info', 'Connecting to GPT-Realtime-Translate...', 'session');
 
-    const resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const url = `wss://${resource}/openai/v1/realtime/translations?model=${this.deployment}&api-key=${this.apiKey}`;
+    // Auto-convert endpoint domains to openai.azure.com for Translate
+    let resource = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (resource.includes('.services.ai.azure.com')) {
+      const name = resource.split('.services.ai.azure.com')[0];
+      resource = `${name}.openai.azure.com`;
+    } else if (resource.includes('.cognitiveservices.azure.com')) {
+      const name = resource.split('.cognitiveservices.azure.com')[0];
+      resource = `${name}.openai.azure.com`;
+    }
+    const url = `wss://${resource}/openai/v1/realtime/translations?model=${this.deployment}&api-key=${this.apiKey}&translation_delay=${this.config.translateDelay}`;
 
-    this.log('info', `WebSocket URL: wss://${resource}/openai/v1/realtime/translations?model=${this.deployment}`, 'session');
+    this.log('info', `WebSocket URL: wss://${resource}/openai/v1/realtime/translations?model=${this.deployment}&translation_delay=${this.config.translateDelay}`, 'session');
 
     this.ws = new WebSocket(url);
 
@@ -97,6 +108,9 @@ export class TranslateClient {
             },
           },
         },
+        ...(this.config.translateNoiseReduction !== 'off' && {
+          noise_reduction: { type: this.config.translateNoiseReduction },
+        }),
       },
     };
 
